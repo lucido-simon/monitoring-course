@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+  name: loki-gateway
+  namespace: monitoring
+spec:
+    rules:
+    - host: michel.simonlucido.com
+      http:
+        paths:
+        - backend:
+            service:
+              name: loki-grafana-loki-gateway
+              port:
+                number: 80
+          path: /loki
+          pathType: Prefix

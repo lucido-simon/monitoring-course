@@ -1,0 +1,107 @@
+---
+- name: Setup nfs
+  hosts: unique_nodes
+  become: true
+  tasks:
+    - name: Install required packages
+      ansible.builtin.package:
+        name:
+          - nfs-kernel-server
+          - nfs-common
+        state: present
+
+    - name: Create nfs directory
+      ansible.builtin.file:
+        path: /nfs
+        state: directory
+        mode: '777'
+
+- name: Create nfs share
+  hosts: server
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Compile list of IP addresses from agent and server groups
+      ansible.builtin.set_fact:
+        nfs_client_ips: "{{ groups['unique_nodes'] | map('extract', hostvars, ['ansible_default_ipv4', 'address']) | list | unique }}"
+      delegate_to: "{{ groups['server'][0] }}"
+
+    - name: Debug IP list
+      ansible.builtin.debug:
+        var: nfs_client_ips
+
+    - name: Create nfs share with IPs from agent and server
+      ansible.builtin.copy:
+        dest: /etc/exports
+        content: "/nfs {{ nfs_client_ips | join('(rw,no_subtree_check,no_root_squash) ') }}(rw,no_subtree_check,no_root_squash)"
+        force: true
+        mode: '644'
+      delegate_to: "{{ groups['server'][0] }}"
+
+    - name: Restart nfs server
+      ansible.builtin.service:
+        name: nfs-server
+        state: restarted
+      delegate_to: "{{ groups['server'][0] }}"
+
+- name: Check connectivity to nfs share
+  hosts: unique_nodes
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Create mount point
+      ansible.builtin.file:
+        path: /mnt/nfs
+        state: directory
+        mode: '777'
+
+    - name: Mount nfs share
+      ansible.posix.mount:
+        path: /mnt/nfs
+        src: "{{ hostvars[groups['server'][0]]['ansible_default_ipv4']['address'] }}:/nfs"
+        fstype: nfs
+        state: mounted
+        opts: defaults
+        dump: 0
+        passno: 0
+
+    - name: Create test file
+      ansible.builtin.file:
+        path: /mnt/nfs/test.txt
+        state: touch
+        mode: '777'
+
+    - name: Check test file exists
+      ansible.builtin.stat:
+        path: /mnt/nfs/test.txt
+      register: test_file
+
+    - name: Fail if test file does not exist
+      ansible.builtin.fail:
+        msg: 'The file /mnt/nfs/test.txt does not exist'
+      when: not test_file.stat.exists
+
+    - name: Unmount nfs share
+      ansible.posix.mount:
+        path: /mnt/nfs
+        fstype: nfs
+        state: unmounted
+        opts: defaults
+        dump: 0
+        passno: 0
+
+    - name: Remove mount point
+      ansible.builtin.file:
+        path: /mnt/nfs
+        state: absent
+
+- name: Cleanup test file
+  hosts: server
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Remove test file
+      ansible.builtin.file:
+        path: /nfs/test.txt
+        state: absent
+      delegate_to: "{{ groups['server'][0] }}"

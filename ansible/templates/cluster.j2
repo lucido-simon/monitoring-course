@@ -1,0 +1,28 @@
+# If you intended to deploy Kubernetes in an air-gapped environment,
+# please consult the documentation on how to configure custom RKE images.
+nodes:
+{% set all_hosts = groups['agent'] + groups['server'] %}
+{% set unique_hosts = all_hosts | unique %}
+{% for host in unique_hosts %}
+- address: {{ hostvars[host].ansible_host | default(host) }}
+  port: "22"
+  role: 
+{% if host in groups['agent'] and host not in groups['server'] %}
+  - worker
+{% elif host in groups['server'] and host not in groups['agent'] %}
+  - etcd
+  - controlplane
+{% elif host in groups['agent'] and host in groups['server'] %}
+  - worker
+  - etcd
+  - controlplane
+{% endif %}
+  user: {{ hostvars[host].ansible_user | default('default_user') }}
+  labels:
+    location: "{{ hostvars[host].location | default('unknown') }}"
+{% endfor %}
+    
+network:
+  plugin: calico
+ssh_key_path: "{{ ssh_key_path }}"
+ssh_agent_auth: true

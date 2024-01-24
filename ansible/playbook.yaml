@@ -1,0 +1,71 @@
+---
+- name: Setup dynamic unique group
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Add to dynamic group
+      ansible.builtin.add_host:
+        name: '{{ item }}'
+        groups: unique_nodes
+      loop: "{{ groups['server'] + groups['agent'] | unique }}"
+      run_once: true
+
+- name: Setup hosts
+  hosts: unique_nodes
+  become: true
+  tasks:
+    - name: Install required packages
+      ansible.builtin.package:
+        name:
+          - docker.io
+        state: present
+
+    - name: Add user to docker group
+      ansible.builtin.user:
+        name: '{{ ansible_user }}'
+        groups: docker
+        append: true
+
+    - name: Enable and start docker
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+- import_playbook: nfs.yaml
+
+- name: Setup RKE
+  hosts: installer
+  tasks:
+    - name: Write config using jinja2
+      ansible.builtin.template:
+        src: templates/cluster.j2
+        dest: cluster.yml
+        mode: '0644'
+
+    - name: Check that RKE cli is installed
+      ansible.builtin.command: rke --version
+      register: rke_version
+      failed_when: false
+      changed_when: false
+
+    - name: Fail if RKE cli is not installed
+      ansible.builtin.fail:
+        msg: 'RKE cli is not installed'
+      when: rke_version.rc != 0
+
+    - name: Check that kubectl is installed
+      ansible.builtin.command: kubectl version --client
+      register: kubectl_version
+      failed_when: false
+      changed_when: false
+
+    - name: Fail if kubectl is not installed
+      ansible.builtin.fail:
+        msg: 'kubectl is not installed'
+      when: kubectl_version.rc != 0
+
+    - name: Install cluster using RKE
+      ansible.builtin.command: rke up --update-only --config cluster.yml
+      register: rke_up
+      changed_when: false

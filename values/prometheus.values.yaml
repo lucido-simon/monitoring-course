@@ -1,0 +1,8 @@
+grafana:
+  sidecar:
+    additionalDataSources:
+      - name: loki
+        uid: loki
+        type: loki
+        url: http://loki-grafana-loki-query-frontend:3100
+        enabled: true
